@@ -59,7 +59,7 @@ var RecordSelector = function(q, args, model) {
 
 	this.match = function(record) {
 		var t = self;
-		for(var x in record) t = t.eq(x, record[v]);
+		for(var x in record) t = t.eq(x, record[x]);
 		return t;
 	};
 
