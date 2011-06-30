@@ -127,7 +127,7 @@ var RecordSelector = function(q, args, model) {
 	 */
 	this.one = function(cb) {
 		self._get_ids(function(ids){
-			if(typeof ids[it_ptr] == 'undefined') cb.call(self, false);
+			if(typeof ids[it_ptr] == 'undefined') return cb.call(self, false);
 			model.load(ids[it_ptr++], function(rec){
 				cb.call(self, rec);
 			});

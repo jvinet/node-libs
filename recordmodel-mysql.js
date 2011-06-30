@@ -25,7 +25,7 @@ var get_schema = function(db, table, cb) {
  */
 var query = function(db, query, args, cb) {
 	var args = typeof args == 'object' ? args : [];
-	sys.puts("SQL: " + query)
+	//sys.puts("SQL: " + query)
 	db.query(query, args, function(err, rows, fields){
 		if(err) {
 			require('sys').puts("SQL ERROR: " + err);
@@ -118,7 +118,7 @@ var RecordSelector = function(q, args, model) {
 	 */
 	this.one = function(cb) {
 		self._get_ids(function(ids){
-			if(typeof ids[it_ptr] == 'undefined') cb.call(self, false);
+			if(typeof ids[it_ptr] == 'undefined') return cb.call(self, false);
 			model.load(ids[it_ptr++], function(rec){
 				cb.call(self, rec);
 			});
