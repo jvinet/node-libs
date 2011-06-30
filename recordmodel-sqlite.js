@@ -1,16 +1,7 @@
 /**
- * Basic ORM for Node and SQLite.
+ * RecordModel for SQLite.
  *
- * This code was originally ported from a PHP framework (Pronto), so
- * the resulting JavaScript is probably less than beautiful.
- *
- * See test.recordmodel.js for an idea how to use this.  It currently
- * requires the node-sqlite[1] addon, though another SQL store could
- * be hooked up with little effort.
- *
- * Copyright (C) 2010 Judd Vinet <jvinet@zeroflux.org>
- *
- * MIT Licensed.
+ * Requires the node-sqlite3 package: npm install sqlite3
  */
 
 var sys = require("sys");
@@ -21,14 +12,40 @@ var sys = require("sys");
  */
 var get_schema = function(db, table, cb) {
 	var s = {};
-	db.query('PRAGMA table_info("' + table + '")', function(recs){
-		recs.forEach(function(row){ s[row.name] = row.type; });
+	db.all('PRAGMA table_info("' + table + '")', function(err, rows){
+		rows.forEach(function(row){ s[row.name] = row.type; });
 		cb(s);
 	});
 };
 
+/**
+ * Execute a query and return the result rows.
+ *
+ * Convenience function to help keep up with the ever-changing DB APIs.
+ */
+var query = function(db, query, args, cb) {
+	var args = typeof args == 'object' ? args : [];
+	sys.puts("SQL: " + query)
+	var func = db.run;
+	if(/^SELECT/i.test(query)) {
+		// use a different method for queries that return results
+		func = db.all;
+	}
+	func.call(db, query, args, function(err, rows){
+		if(err) {
+			require('sys').puts("SQL ERROR: " + err);
+			throw "sql error";
+		}
+		if(func == db.run) {
+			if(cb) cb(this.lastID);
+		} else {
+			if(cb) cb(rows);
+		}
+	});
+};
+
 /************************************************************************
- * RECORD MODEL
+ * SELECTOR MODEL
  ************************************************************************/
 
 var RecordSelector = function(q, args, model) {
@@ -180,6 +197,7 @@ var RecordSelector = function(q, args, model) {
 			if(d == false) cb.call(self, []);
 			var ret = {};
 			for(var x in d) {
+				if(!d.hasOwnProperty(x)) continue;
 				if(cols.length > 2) {
 					ret[d[x][key]] = [];
 					for(var i = 1; i < cols.length; i++) ret[d[x][key]].push(d[x][cols[i]]);
@@ -211,7 +229,9 @@ var RecordSelector = function(q, args, model) {
 
 		var c = self._build_clause();
 		for(var i = 0; i < c[1].length; i++) args.push(c[1][i]);
-		model.db.query(q + c[0], args, cb);
+		//sys.p(q + c[0]);
+		//sys.p(args);
+		query(model.db, q + c[0], args, cb);
 	};
 
 	this._build_clause = function() {
@@ -237,9 +257,6 @@ var RecordSelector = function(q, args, model) {
  * The model object should override the *_record() routines, which are called
  * by the higher-level save/load/remove functions.  *_record() calls the
  * lower-level fetch/store/erase to do the actual DB work.
- *
- * @param object db    The node-sqlite object.
- * @param string table The name of the DB table this model operates on.
  ************************************************************************/
 
 var RecordModel = function(db, table) {
@@ -277,11 +294,14 @@ var RecordModel = function(db, table) {
 	this.load = function(id, cb) {
 		var ids  = id instanceof Array ? id : [id];
 		var recs = [];
+		var c = ids.length;
 		// if no records are found, an empty array is returned
 		for(var i = 0, n = ids.length; i < ids.length; i++) {
 			self.load_record(ids[i], function(d){
 				if(d) recs.push(d);
-				if(--n < 1) cb.call(self, recs);
+				if(--n < 1) {
+					cb.call(self, recs);
+				}
 			});
 		}
 	};
@@ -318,8 +338,11 @@ var RecordModel = function(db, table) {
 	 * Fetch a single row from the DB.
 	 */
 	this.fetch = function(id, cb) {
-		self.db.query("SELECT * FROM "+self.table+" WHERE "+self.pk+"=? LIMIT 1", [id], function(recs){
-			cb.call(self, recs.length ? recs[0] : false);
+		if(id == null) {
+			throw "[recordmodel] .fetch() was passed a null id";
+		}
+		query(self.db, "SELECT * FROM "+self.table+" WHERE "+self.pk+"=? LIMIT 1", [id], function(rows){
+			cb.call(self, rows.length ? rows[0] : false);
 		});
 	};
 
@@ -341,11 +364,11 @@ var RecordModel = function(db, table) {
 			if(typeof row[self.pk] == 'undefined') {
 				var sql = "INSERT INTO " + self.table + " ";
 				sql += "(" + fields.join(",") + ") VALUES (" + ins.join(",") + ")";
-				self.db.query(sql, vals, function(r){ cb.call(self, r.insertId) });
+				query(self.db, sql, vals, function(insertId){ if(cb) cb.call(self, insertId) });
 			} else {
 				var sql = "UPDATE " + self.table + " SET " + upd.join(",") + " WHERE " + self.pk + "=?";
 				vals.push(row[self.pk]);
-				self.db.query(sql, vals, function(){ cb.call(self, row[self.pk]) });
+				query(self.db, sql, vals, function(){ if(cb) cb.call(self, row[self.pk]) });
 			}
 		});
 	};
@@ -354,9 +377,17 @@ var RecordModel = function(db, table) {
 	 * Delete a row from the DB.
 	 */
 	this.erase = function(id, cb) {
-		var cb = typeof cb == 'function' ? cb : function(){};
 		var sql = "DELETE FROM "+self.table+" WHERE "+self.pk+"=?";
-		self.db.query(sql, [id], function(){ cb.call(self) });
+		query(self.db, sql, [id], function(){ if(cb) cb.call(self) });
+	};
+
+	/**
+	 * Query the DB directly.
+	 */
+	this.query = function(sql, args, cb) {
+		query(self.db, sql, args || [], function(rows){
+			if(cb) cb.call(self, rows);
+		});
 	};
 
 	this.enum_schema = {
